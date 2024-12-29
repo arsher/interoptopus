@@ -375,6 +375,16 @@ pub trait CSharpWriter {
     fn write_type_definition_composite_annotation(&self, w: &mut IndentWriter, the_type: &CompositeType) -> Result<(), Error> {
         indented!(w, r#"[Serializable]"#)?;
 
+        let has_ansi_string = the_type.fields().iter().any(|x| match x.the_type() {
+            CType::Array(a) => match a.array_type() {
+                CType::Pattern(TypePattern::CChar) => true,
+                _ => false,
+            },
+            _ => false,
+        });
+
+        let layout_args = if has_ansi_string { r#", CharSet = CharSet.Ansi"# } else { "" };
+
         if the_type.repr().alignment().is_some() {
             let comment = r#"// THIS STRUCT IS BROKEN - C# does not support alignment of entire Rust types that do #[repr(align(...))]"#;
             match self.config().unsupported {
@@ -384,8 +394,8 @@ pub trait CSharpWriter {
         };
 
         match the_type.repr().layout() {
-            Layout::C | Layout::Transparent | Layout::Opaque => indented!(w, r#"[StructLayout(LayoutKind.Sequential)]"#),
-            Layout::Packed => indented!(w, r#"[StructLayout(LayoutKind.Sequential, Pack = 1)]"#),
+            Layout::C | Layout::Transparent | Layout::Opaque => indented!(w, r#"[StructLayout(LayoutKind.Sequential{})]"#, layout_args),
+            Layout::Packed => indented!(w, r#"[StructLayout(LayoutKind.Sequential, Pack = 1{})]"#, layout_args),
             Layout::Primitive(_) => panic!("Primitive layout not supported for structs."),
         }
     }
@@ -425,13 +435,23 @@ pub trait CSharpWriter {
 
         match field.the_type() {
             CType::Array(a) => {
-                if !self.config().unroll_struct_arrays {
+                let is_string_candidate = match a.array_type() {
+                    CType::Pattern(TypePattern::CChar) => true,
+                    _ => false,
+                };
+
+                if !self.config().unroll_struct_arrays && !is_string_candidate {
                     panic!("Unable to generate bindings for arrays in fields if `unroll_struct_arrays` is not enabled.");
                 }
 
-                let type_name = self.converter().to_typespecifier_in_field(a.array_type(), field, the_type);
-                for i in 0..a.len() {
-                    indented!(w, r#"{}{} {}{};"#, visibility, type_name, field_name, i)?;
+                if is_string_candidate && self.config().cchar_array_as_string {
+                    indented!(w, r#"[MarshalAs(UnmanagedType.ByValTStr, SizeConst = {})]"#, a.len())?;
+                    indented!(w, r#"{}string {};"#, visibility, field_name)?;
+                } else {
+                    let type_name = self.converter().to_typespecifier_in_field(a.array_type(), field, the_type);
+                    for i in 0..a.len() {
+                        indented!(w, r#"{}{} {}{};"#, visibility, type_name, field_name, i)?;
+                    }
                 }
 
                 Ok(())
