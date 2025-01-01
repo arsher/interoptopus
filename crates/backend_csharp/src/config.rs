@@ -98,7 +98,6 @@ pub struct Config {
     /// If this is not set, interop generation with arrays in structs will fail. This is a somewhat
     /// open issue w.r.t Unity-sans-unsafe support and feedback would be greatly welcome!
     pub unroll_struct_arrays: bool,
-    pub cchar_array_as_string: bool,
     /// Which types to write.
     pub write_types: WriteTypes,
     /// If enabled bindings will use C# `unsafe` for increased performance; but will need to be enabled in C# project settings to work.
@@ -130,7 +129,6 @@ impl Default for Config {
             namespace_id: "".to_string(),
             visibility_types: CSharpVisibility::AsDeclared,
             unroll_struct_arrays: true,
-            cchar_array_as_string: false,
             write_types: WriteTypes::NamespaceAndInteroptopusGlobal,
             use_unsafe: Unsafe::None,
             rename_symbols: false,

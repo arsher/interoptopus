@@ -26,7 +26,8 @@
 //! void call_with_string(uint8_t* s);
 //! ```
 //!
-use crate::lang::c::CType;
+
+use crate::lang::c::{CType, CompositeType, Documentation, Field, Layout, Meta, PrimitiveType, Representation, Visibility};
 use crate::lang::rust::CTypeInfo;
 use crate::patterns::TypePattern;
 use crate::Error;
@@ -123,6 +124,125 @@ impl<'a> CStrPointer<'a> {
 unsafe impl<'a> CTypeInfo for CStrPointer<'a> {
     fn type_info() -> CType {
         CType::Pattern(TypePattern::CStrPointer)
+    }
+}
+
+/// Owned ANSI zero terminated string with a fixed size.
+/// Size includes the zero terminator.
+#[repr(C)]
+pub struct OwnedString<'a, const N: usize> {
+    data: [u8; N],
+    _phantom: PhantomData<&'a ()>,
+}
+
+unsafe impl<'a, const N: usize> CTypeInfo for OwnedString<'a, N> {
+    fn type_info() -> CType {
+        CType::Pattern(TypePattern::OwnedString(N))
+    }
+}
+
+impl<'a, const N: usize> OwnedString<'a, N> {
+    pub fn from_str(s: &str) -> Result<Self, Error> {
+        let mut buffer = [0u8; N];
+        let ansi_bytes = s.as_bytes();
+
+        if N < ansi_bytes.len() + 1 {
+            return Err(Error::StringTooLong);
+        }
+
+        let length = ansi_bytes.len().min(N - 1);
+        buffer[..length].copy_from_slice(&ansi_bytes[..length]);
+
+        Ok(Self {
+            data: buffer,
+            _phantom: Default::default(),
+        })
+    }
+
+    pub fn from_string(s: String) -> Result<Self, crate::Error> {
+        Self::from_str(&s)
+    }
+
+    pub fn as_str(&'a self) -> Result<&'a str, Error> {
+        CStr::from_bytes_with_nul(&self.data)
+            .map_err(|_| Error::NulTerminated)
+            .and_then(|cstr| cstr.to_str().map_err(|e| Error::UTF8(e)))
+    }
+}
+
+impl<'a, const N: usize> TryFrom<&str> for OwnedString<'a, N> {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::from_str(value)
+    }
+}
+
+impl<'a, const N: usize> TryFrom<String> for OwnedString<'a, N> {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::from_string(value)
+    }
+}
+
+impl<'a, const N: usize> TryInto<String> for OwnedString<'a, N> {
+    type Error = Error;
+
+    fn try_into(self) -> Result<String, Self::Error> {
+        Ok(self.as_str()?.to_string())
+    }
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct CStrMutPointer<'a> {
+    ptr: *mut c_char,
+    capacity: u32,
+    _phantom: PhantomData<&'a ()>,
+}
+
+unsafe impl<'a> CTypeInfo for CStrMutPointer<'a> {
+    fn type_info() -> CType {
+        let doc_data = Documentation::from_line("Pointer to start of mutable ANSI string data.");
+        let doc_len = Documentation::from_line("Number of characters.");
+        let fields = vec![
+            Field::with_documentation("data".to_string(), CType::ReadPointer(Box::new(c_char::type_info())), Visibility::Private, doc_data),
+            Field::with_documentation("capacity".to_string(), CType::Primitive(PrimitiveType::U64), Visibility::Private, doc_len),
+        ];
+
+        let doc = Documentation::from_line("A pointer to an array of chars someone else owns which may be modified.");
+        let repr = Representation::new(Layout::C, None);
+        let meta = Meta::with_namespace_documentation(c_char::type_info().namespace().map(|e| e.into()).unwrap_or_else(String::new), doc);
+        let composite = CompositeType::with_meta_repr("StringBuffer".to_string(), fields, meta, repr);
+        CType::Pattern(TypePattern::CStrMutPointer(composite))
+    }
+}
+
+impl<'a> CStrMutPointer<'a> {
+    pub fn as_str(&'a self) -> Result<&'a str, Error> {
+        unsafe {
+           // let slice = std::slice::from_raw_parts(self.ptr as *const u8, self.capacity as usize);
+            //println!("SLICE");
+            let cstr = CStr::from_ptr(self.ptr);
+            cstr.to_str().map_err(|e| Error::UTF8(e))
+        }
+    }
+
+    pub fn write(&mut self, s: &str) -> Result<(), Error> {
+        unsafe {
+            let cstr_count =  {
+                CStr::from_ptr(self.ptr).count_bytes()
+            };
+            if cstr_count + s.len() + 1 > self.capacity as usize {
+                Err(Error::StringTooLong)
+            } else {
+                let slice = std::slice::from_raw_parts_mut(self.ptr as *mut u8, self.capacity as usize);
+                slice[cstr_count..cstr_count + s.len()].copy_from_slice(s.as_bytes());
+                slice[cstr_count + s.len() + 1] = 0;
+                Ok(())
+            }
+        }
     }
 }
 

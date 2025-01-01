@@ -76,7 +76,7 @@
 //! in certain backends.
 //!
 
-use crate::lang::c::{CType, CompositeType, PrimitiveType};
+use crate::lang::c::{ArrayType, CType, CompositeType, PrimitiveType};
 use crate::lang::rust::CTypeInfo;
 use crate::patterns::callbacks::NamedCallback;
 use crate::patterns::result::FFIErrorEnum;
@@ -119,11 +119,13 @@ impl From<Service> for LibraryPattern {
 #[allow(clippy::large_enum_variant)]
 #[non_exhaustive]
 pub enum TypePattern {
+    OwnedString(usize),
     CStrPointer,
     APIVersion,
     FFIErrorEnum(FFIErrorEnum),
     Slice(CompositeType),
     SliceMut(CompositeType),
+    CStrMutPointer(CompositeType),
     Option(CompositeType),
     Bool,
     CChar,
@@ -137,8 +139,10 @@ impl TypePattern {
     /// This function will never return a [`CType::Pattern`] variant.
     pub fn fallback_type(&self) -> CType {
         match self {
+            TypePattern::OwnedString(n) => CType::Array(ArrayType::new(c_char::type_info(), *n)),
             TypePattern::CStrPointer => CType::ReadPointer(Box::new(CType::Pattern(TypePattern::CChar))),
             TypePattern::FFIErrorEnum(e) => CType::Enum(e.the_enum().clone()),
+            TypePattern::CStrMutPointer(x) => CType::Composite(x.clone()),
             TypePattern::Slice(x) => CType::Composite(x.clone()),
             TypePattern::SliceMut(x) => CType::Composite(x.clone()),
             TypePattern::Option(x) => CType::Composite(x.clone()),

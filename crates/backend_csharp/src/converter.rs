@@ -67,6 +67,7 @@ pub trait CSharpTypeConverter {
             CType::Composite(c) => c.fields().iter().all(|x| self.is_blittable(x.the_type())),
             CType::Pattern(x) => match x {
                 TypePattern::CStrPointer => false,
+                TypePattern::CStrMutPointer(_) => false,
                 TypePattern::APIVersion => true,
                 TypePattern::FFIErrorEnum(_) => true,
                 TypePattern::Slice(_) => false,
@@ -108,8 +109,10 @@ pub trait CSharpTypeConverter {
             CType::ReadWritePointer(_) => "IntPtr".to_string(),
             CType::FnPointer(x) => self.fnpointer_to_typename(x),
             CType::Pattern(x) => match x {
+                TypePattern::OwnedString(_) => "string".to_string(),
                 TypePattern::CStrPointer => "string".to_string(),
                 TypePattern::FFIErrorEnum(e) => self.enum_to_typename(e.the_enum()),
+                TypePattern::CStrMutPointer(e) => self.composite_to_typename(e),
                 TypePattern::Slice(e) => self.composite_to_typename(e),
                 TypePattern::SliceMut(e) => self.composite_to_typename(e),
                 TypePattern::Option(e) => self.composite_to_typename(e),
@@ -145,7 +148,7 @@ pub trait CSharpTypeConverter {
                 CType::Primitive(PrimitiveType::Void) => "IntPtr".to_string(),
                 CType::ReadPointer(_) => "ref IntPtr".to_string(),
                 CType::ReadWritePointer(_) => "ref IntPtr".to_string(),
-                CType::Pattern(TypePattern::CChar) => "System.Text.StringBuilder".to_string(),
+                CType::Pattern(TypePattern::CChar) => "IntPtr".to_string(),
                 CType::Pattern(TypePattern::Slice(_)) => format!("ref {}", self.to_typespecifier_in_param(z)),
                 CType::Pattern(TypePattern::SliceMut(_)) => format!("ref {}", self.to_typespecifier_in_param(z)),
                 _ => format!("out {}", self.to_typespecifier_in_param(z)),
@@ -153,6 +156,7 @@ pub trait CSharpTypeConverter {
             CType::FnPointer(x) => self.fnpointer_to_typename(x),
             CType::Pattern(x) => match x {
                 TypePattern::CStrPointer => "string".to_string(),
+                TypePattern::CStrMutPointer(x) => self.composite_to_typename(x),
                 TypePattern::FFIErrorEnum(e) => self.enum_to_typename(e.the_enum()),
                 TypePattern::Slice(x) => self.composite_to_typename(x),
                 TypePattern::SliceMut(x) => self.composite_to_typename(x),
@@ -178,6 +182,7 @@ pub trait CSharpTypeConverter {
             CType::FnPointer(x) => self.fnpointer_to_typename(x),
             CType::Pattern(x) => match x {
                 TypePattern::CStrPointer => "IntPtr".to_string(),
+                TypePattern::CStrMutPointer(x) => self.composite_to_typename(x),
                 TypePattern::FFIErrorEnum(e) => self.enum_to_typename(e.the_enum()),
                 TypePattern::Slice(x) => self.composite_to_typename(x),
                 TypePattern::SliceMut(x) => self.composite_to_typename(x),

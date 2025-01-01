@@ -1,3 +1,4 @@
+use std::ffi::c_char;
 use crate::config::{Config, Unsafe, Unsupported, WriteTypes};
 use crate::converter::{CSharpTypeConverter, Converter, FunctionNameFlavor};
 use crate::overloads::{Helper, OverloadWriter};
@@ -10,6 +11,7 @@ use interoptopus::util::{is_global_type, longest_common_prefix};
 use interoptopus::writer::{IndentWriter, WriteFor};
 use interoptopus::{indented, Error, Inventory};
 use std::iter::zip;
+use interoptopus::lang::rust::CTypeInfo;
 
 /// Writes the C# file format, `impl` this trait to customize output.
 pub trait CSharpWriter {
@@ -223,6 +225,12 @@ pub trait CSharpWriter {
             CType::ReadWritePointer(_) => {}
             CType::Pattern(x) => match x {
                 TypePattern::CStrPointer => {}
+                TypePattern::CStrMutPointer(x) => {
+                    self.write_type_definition_composite(w, x)?;
+                    w.newline()?;
+                    self.write_pattern_mut_cstr(w, x)?;
+                    w.newline()?;
+                }
                 TypePattern::FFIErrorEnum(e) => {
                     self.write_type_definition_enum(w, e.the_enum(), WriteFor::Code)?;
                     w.newline()?;
@@ -376,8 +384,8 @@ pub trait CSharpWriter {
         indented!(w, r#"[Serializable]"#)?;
 
         let has_ansi_string = the_type.fields().iter().any(|x| match x.the_type() {
-            CType::Array(a) => match a.array_type() {
-                CType::Pattern(TypePattern::CChar) => true,
+            CType::Pattern(t) => match t {
+                TypePattern::OwnedString(_) => true,
                 _ => false,
             },
             _ => false,
@@ -435,23 +443,13 @@ pub trait CSharpWriter {
 
         match field.the_type() {
             CType::Array(a) => {
-                let is_string_candidate = match a.array_type() {
-                    CType::Pattern(TypePattern::CChar) => true,
-                    _ => false,
-                };
-
-                if !self.config().unroll_struct_arrays && !is_string_candidate {
+                if !self.config().unroll_struct_arrays {
                     panic!("Unable to generate bindings for arrays in fields if `unroll_struct_arrays` is not enabled.");
                 }
 
-                if is_string_candidate && self.config().cchar_array_as_string {
-                    indented!(w, r#"[MarshalAs(UnmanagedType.ByValTStr, SizeConst = {})]"#, a.len())?;
-                    indented!(w, r#"{}string {};"#, visibility, field_name)?;
-                } else {
-                    let type_name = self.converter().to_typespecifier_in_field(a.array_type(), field, the_type);
-                    for i in 0..a.len() {
-                        indented!(w, r#"{}{} {}{};"#, visibility, type_name, field_name, i)?;
-                    }
+                let type_name = self.converter().to_typespecifier_in_field(a.array_type(), field, the_type);
+                for i in 0..a.len() {
+                    indented!(w, r#"{}{} {}{};"#, visibility, type_name, field_name, i)?;
                 }
 
                 Ok(())
@@ -546,7 +544,9 @@ pub trait CSharpWriter {
             CType::ReadPointer(_) => false,
             CType::ReadWritePointer(_) => false,
             CType::Pattern(x) => match x {
+                TypePattern::OwnedString(_) => false,
                 TypePattern::CStrPointer => true,
+                TypePattern::CStrMutPointer(_) => true,
                 TypePattern::APIVersion => true,
                 TypePattern::FFIErrorEnum(x) => self.should_emit_by_meta(x.the_enum().meta()),
                 TypePattern::Slice(x) => self.should_emit_by_meta(x.meta()),
@@ -614,6 +614,51 @@ pub trait CSharpWriter {
 
         indented!(w, r#"}}"#)?;
         w.newline()?;
+        Ok(())
+    }
+
+    fn write_pattern_mut_cstr(&self, w: &mut IndentWriter, str: &CompositeType) -> Result<(), Error> {
+        self.debug(w, "write_pattern_mut_cstr")?;
+
+        let context_type_name = str.rust_name();
+        let data_type = str
+            .fields()
+            .iter()
+            .find(|x| x.name().contains("data"))
+            .expect("CStrMutPointer must contain field called 'data'.")
+            .the_type()
+            .try_deref_pointer()
+            .expect("data must be a pointer type");
+
+        if *data_type != c_char::type_info() {
+            panic!("CStrMutPointer must contain a field called 'data' of type 'c_char'.")
+        }
+
+        str.fields()
+            .iter()
+            .find(|x| x.name().contains("capacity"))
+            .expect("CStrMutPointer must contain a field called 'capacity'.");
+
+        indented!(w, r#"{} partial struct {}"#,
+            self.config().visibility_types.to_access_modifier(),
+            context_type_name)?;
+
+        indented!(w, r#"{{"#)?;
+        indented!(w, [_], r#"public {}()"#, context_type_name)?;
+        indented!(w, [_], r#"{{"#)?;
+        indented!(w, [_ _], r#"this.data = IntPtr.Zero;"#)?;
+        indented!(w, [_ _], r#"this.capacity = 0;"#)?;
+        indented!(w, [_], r#"}}"#)?;
+        w.newline()?;
+        indented!(w, [_], r#"public {}(IntPtr data, int capacity)"#, context_type_name)?;
+        indented!(w, [_], r#"{{"#)?;
+        indented!(w, [_ _], r#"this.data = data;"#)?;
+        indented!(w, [_ _], r#"this.capacity = (ulong)capacity;"#)?;
+        indented!(w, [_], r#"}}"#)?;
+        indented!(w, r#"}}"#)?;
+
+        w.newline()?;
+
         Ok(())
     }
 

@@ -124,7 +124,10 @@ impl OverloadWriter for DotNet {
         Ok(())
     }
 
-    fn write_field_decorators(&self, _w: &mut IndentWriter, _h: Helper, _field: &Field, _strct: &CompositeType) -> Result<(), Error> {
+    fn write_field_decorators(&self, w: &mut IndentWriter, _h: Helper, field: &Field, _strct: &CompositeType) -> Result<(), Error> {
+        if let CType::Pattern(TypePattern::OwnedString(x)) = field.the_type() {
+            indented!(w, r#"[MarshalAs(UnmanagedType.ByValTStr, SizeConst = {})]"#, x)?;
+        }
         Ok(())
     }
 
