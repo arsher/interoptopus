@@ -33,9 +33,8 @@ pub enum Error {
     /// A specified file was not found.
     FileNotFound,
 
+    /// The string being marshalled does not fit the buffer
     StringTooLong,
-
-    InteriorNul,
 }
 
 impl From<std::fmt::Error> for Error {
