@@ -352,6 +352,9 @@ pub trait CSharpWriter {
         if write_for == WriteFor::Code {
             self.write_documentation(w, the_type.meta().documentation())?;
         }
+        if the_type.is_bitflag() {
+            indented!(w, r#"[Flags]"#)?;
+        }
         indented!(w, r#"public enum {}"#, the_type.rust_name())?;
         indented!(w, r#"{{"#)?;
         w.indent();

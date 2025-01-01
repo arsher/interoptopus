@@ -316,11 +316,16 @@ pub struct EnumType {
     variants: Vec<Variant>,
     repr: Representation,
     meta: Meta,
+    bitflag: bool,
 }
 
 impl EnumType {
     pub fn new(name: String, variants: Vec<Variant>, meta: Meta, repr: Representation) -> Self {
-        Self { name, variants, meta, repr }
+        Self { name, variants, meta, repr , bitflag: false }
+    }
+
+    pub fn new_bitflag(name: String, variants: Vec<Variant>, meta: Meta, repr: Representation) -> Self {
+        Self { name, variants, meta, repr, bitflag: true }
     }
 
     pub fn rust_name(&self) -> &str {
@@ -341,6 +346,10 @@ impl EnumType {
 
     pub fn repr(&self) -> &Representation {
         &self.repr
+    }
+
+    pub fn is_bitflag(&self) -> bool {
+        self.bitflag
     }
 }
 
